@@ -1,0 +1,106 @@
+pipeline {
+ agent any
+ environment{
+     PATH= "/usr/bin/mvn:$PATH"
+ }
+ stages {
+    stage ('checkout from GIT') {
+        steps {
+            slackSend channel: 'alerts', message: 'Devops Pipeline started'
+            slackSend channel: 'alerts', message: 'Code Checkout started'
+            git 'https://github.com/devopssquad5/DevOps-Demo-WebApp.git'
+            slackSend channel: 'alerts', message: 'Code Checkout Completed'
+        }
+    }
+    stage('Code Quality Check via SonarQube') {
+            steps {
+                slackSend channel: '#alerts', message: 'Code Quality Check started'
+                script {
+                    def scannerHome = tool 'sonarqube';
+                    withSonarQubeEnv("sonarqube") {
+                     sh "${tool("sonarqube")}/bin/sonar-scanner \
+                     -Dsonar.sources=. \
+                     -Dsonar.tests=. \
+                     -Dsonar.projectKey=. \
+                     -Dsonar.inclusions=**/test/java/servlet/createpage_junit.java \
+                     -Dsonar.test.exclusions=**/test/java/servlet/createpage_junit.java \
+                     -Dsonar.login=admin \
+                     -Dsonar.password=admin \
+                     -Dsonar.host.url=http://52.191.162.212:9000 \n"
+                }
+                slackSend channel: '#alerts', message: 'Code Quality Check completed'
+            }
+        }
+    }
+    stage ('Build') {
+        steps {
+            slackSend channel: 'alerts', message: 'Build started'
+            sh "mvn clean install"
+            slackSend channel: 'alerts', message: 'Build completed'
+        }
+    }
+    stage ('Deploy to Test') {
+        steps {
+            slackSend channel: 'alerts', message: 'Deploy to Test started'
+            /***sh "curl -v -u tomcat:tomcat -T /var/lib/jenkins/workspace/DevopsPipeline/target/AVNCommunication-1.0.war 'http://40.88.38.193:8080//manager/text/deploy?path=/QAWebapp&upgrade=true'"***/
+            deploy adapters: [tomcat8(credentialsId: 'tomcat', path: '', url: 'http://40.88.38.193:8080/')], contextPath: '/QAWebapp', war: '**/*.war'
+            slackSend channel: 'alerts', message: 'Deploy to Test completed'
+        }
+    }
+    stage ('Store Artifacts') {
+        steps {
+        slackSend channel: '#alerts', message: 'Deploy artifacts started'
+        rtUpload (
+                    serverId: 'artifactory', // Obtain an Artifactory server instance, defined in Jenkins --> Manage:
+                    spec: """{
+                            "files": [
+                                    {
+                                        "pattern": "target/AVNCommunication-1.0.war",
+                                        "target": "libs-release-local"
+                                    }
+                                ]
+                            }"""
+                )
+                rtPublishBuildInfo (
+                    serverId: 'artifactory'
+                )
+        slackSend channel: '#alerts', message: 'Deploy artifacts completed'
+       }
+    }
+    stage ('Perform UI Testing') {
+        steps {
+            slackSend channel: 'alerts', message: 'UI Testing started'
+            publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: '\\functionaltest\\target\\surefire-reports\\', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: ''])
+            slackSend channel: 'alerts', message: 'UI Testing completed'
+        }
+    }
+    stage ('Performance Testig with Blazemeter') {
+        steps {
+            slackSend channel: 'alerts', message: 'Performance Testing started'
+            blazeMeterTest credentialsId: 'Blazemeter', testId: '8663299.taurus', workspaceId: '683459'
+            /***blazeMeterTest credentialsId: 'Blazemeter', testId: '8658965.taurus', workspaceId: '683459'***/
+            slackSend channel: 'alerts', message: 'Performance Testing completed'
+        }
+    }
+    stage ('Deploy to Production') {
+        steps {
+            slackSend channel: 'alerts', message: 'Deploy to Production started'
+            /***sh "curl -v -u tomcat:tomcat -T /var/lib/jenkins/workspace/DevopsPipeline/target/AVNCommunication-1.0.war 'http://52.247.209.162:8080//manager/text/deploy?path=/Webapp&upgrade=true'"***/
+            deploy adapters: [tomcat8(credentialsId: 'tomcat', path: '', url: 'http://52.247.209.162:8080/')], contextPath: '/Webapp', war: '**/*.war'
+            slackSend channel: 'alerts', message: 'Deploy to Production completed'
+        }
+    }
+    stage ('Sanity Tests') {
+        steps {
+            slackSend channel: 'alerts', message: 'Sanity Tests started'
+            publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: '\\Acceptancetest\\target\\surefire-reports\\', reportFiles: 'index.html', reportName: 'Sanity Test Report', reportTitles: ''])
+            slackSend channel: 'alerts', message: 'Sanity Tests completed'
+        }
+    }
+    stage ('Notify Slack') {
+        steps{
+            slackSend channel: 'alerts', message: 'Devops Pipeline completed'
+        }
+    }
+ }
+}
