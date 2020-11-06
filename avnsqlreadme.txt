@@ -1,4 +1,4 @@
-SQL Commands
+SQL Commands.
 ------------
 
 SELECT  *FROM avn;
